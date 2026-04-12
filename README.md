@@ -13,243 +13,167 @@ tags:
 
 # Delivery Optimisation Environment
 
-A simple test environment that echoes back messages. Perfect for testing the env APIs as well as demonstrating environment usage patterns.
+A reinforcement learning environment that simulates real-world food
+delivery logistics similar to platforms like Swiggy, Zomato, Uber Eats,
+and DoorDash.
 
-## Quick Start
+The environment evaluates how well an AI agent can dispatch delivery
+drivers, batch orders, and reposition fleets under dynamic conditions
+such as traffic, weather, and demand fluctuations.
 
-The simplest way to use the Delivery Optimisation environment is through the `DeliveryOptimisationEnv` class:
+Built using the OpenEnv framework, this environment provides a
+standardized interface (reset(), step(), state()) for training and
+evaluating AI agents on complex operational decision-making tasks.
 
-```python
-from delivery_optimisation import DeliveryOptimisationAction, DeliveryOptimisationEnv
+------------------------------------------------------------------------
 
-try:
-    # Create environment from Docker image
-    delivery_optimisationenv = DeliveryOptimisationEnv.from_docker_image("delivery_optimisation-env:latest")
+Problem Overview
 
-    # Reset
-    result = delivery_optimisationenv.reset()
-    print(f"Reset: {result.observation.echoed_message}")
+At its core, this environment simulates a city-scale logistics system.
 
-    # Send multiple messages
-    messages = ["Hello, World!", "Testing echo", "Final message"]
+Orders appear dynamically across a city graph while drivers move across
+the network to pick up and deliver them.
 
-    for msg in messages:
-        result = delivery_optimisationenv.step(DeliveryOptimisationAction(message=msg))
-        print(f"Sent: '{msg}'")
-        print(f"  → Echoed: '{result.observation.echoed_message}'")
-        print(f"  → Length: {result.observation.message_length}")
-        print(f"  → Reward: {result.reward}")
+An AI agent acts as the central dispatch system and must decide:
 
-finally:
-    # Always clean up
-    delivery_optimisationenv.close()
-```
+-   Which driver should handle which order
+-   Whether multiple orders should be batched
+-   When to reposition idle drivers to high-demand zones
 
-That's it! The `DeliveryOptimisationEnv.from_docker_image()` method handles:
-- Starting the Docker container
-- Waiting for the server to be ready
-- Connecting to the environment
-- Container cleanup when you call `close()`
+The agent is rewarded for efficient delivery operations while penalized
+for delays, cancellations, and fuel consumption.
 
-## Building the Docker Image
+------------------------------------------------------------------------
 
-Before using the environment, you need to build the Docker image:
+Environment Design
 
-```bash
-# From project root
-docker build -t delivery_optimisation-env:latest -f server/Dockerfile .
-```
+The city is modeled as a graph network using NetworkX.
 
-## Deploying to Hugging Face Spaces
+Nodes represent intersections or city zones while edges represent roads
+with travel time weights.
 
-You can easily deploy your OpenEnv environment to Hugging Face Spaces using the `openenv push` command:
+Drivers move along graph paths and must travel over time to reach pickup
+and drop locations.
 
-```bash
-# From the environment directory (where openenv.yaml is located)
-openenv push
+------------------------------------------------------------------------
 
-# Or specify options
-openenv push --namespace my-org --private
-```
+State (Observation Space)
 
-The `openenv push` command will:
-1. Validate that the directory is an OpenEnv environment (checks for `openenv.yaml`)
-2. Prepare a custom build for Hugging Face Docker space (enables web interface)
-3. Upload to Hugging Face (ensuring you're logged in)
+The observation returned to the agent includes:
 
-### Prerequisites
+-   Current simulation time
+-   List of drivers with location and status
+-   Pending delivery orders
+-   Traffic level
+-   Weather conditions
+-   Demand heatmap across city zones
 
-- Authenticate with Hugging Face: The command will prompt for login if not already authenticated
+------------------------------------------------------------------------
 
-### Options
+Action Space
 
-- `--directory`, `-d`: Directory containing the OpenEnv environment (defaults to current directory)
-- `--repo-id`, `-r`: Repository ID in format 'username/repo-name' (defaults to 'username/env-name' from openenv.yaml)
-- `--base-image`, `-b`: Base Docker image to use (overrides Dockerfile FROM)
-- `--private`: Deploy the space as private (default: public)
+The agent can perform three types of actions.
 
-### Examples
+Assignments: Assign a driver to a specific order.
 
-```bash
-# Push to your personal namespace (defaults to username/env-name from openenv.yaml)
-openenv push
+Batch Assignments: Batch multiple compatible orders to the same driver.
 
-# Push to a specific repository
-openenv push --repo-id my-org/my-env
+Reposition: Move idle drivers to predicted demand zones.
 
-# Push with a custom base image
-openenv push --base-image ghcr.io/meta-pytorch/openenv-base:latest
+------------------------------------------------------------------------
 
-# Push as a private space
-openenv push --private
+Environment Dynamics
 
-# Combine options
-openenv push --repo-id my-org/my-env --base-image custom-base:latest --private
-```
+Every step simulates approximately five minutes of real-world time.
 
-After deployment, your space will be available at:
-`https://huggingface.co/spaces/<repo-id>`
+During each step:
 
-The deployed space includes:
-- **Web Interface** at `/web` - Interactive UI for exploring the environment
-- **API Documentation** at `/docs` - Full OpenAPI/Swagger interface
-- **Health Check** at `/health` - Container health monitoring
-- **WebSocket** at `/ws` - Persistent session endpoint for low-latency interactions
+-   New orders appear across the city
+-   Drivers complete deliveries if travel time has elapsed
+-   Traffic and weather influence travel time
+-   Orders expire if deadlines are missed
 
-## Environment Details
+Drivers follow a state machine:
 
-### Action
-**DeliveryOptimisationAction**: Contains a single field
-- `message` (str) - The message to echo back
+idle → assigned → delivering → idle
 
-### Observation
-**DeliveryOptimisationObservation**: Contains the echo response and metadata
-- `echoed_message` (str) - The message echoed back
-- `message_length` (int) - Length of the message
-- `reward` (float) - Reward based on message length (length × 0.1)
-- `done` (bool) - Always False for echo environment
-- `metadata` (dict) - Additional info like step count
+------------------------------------------------------------------------
 
-### Reward
-The reward is calculated as: `message_length × 0.1`
-- "Hi" → reward: 0.2
-- "Hello, World!" → reward: 1.3
-- Empty message → reward: 0.0
+Reward Function
 
-## Advanced Usage
+The reward captures operational efficiency:
 
-### Connecting to an Existing Server
+-   completed deliveries
+-   on-time deliveries
+-   priority order success
+-   batching efficiency
+-   cancelled orders
+-   late deliveries
+-   fuel cost
 
-If you already have a Delivery Optimisation environment server running, you can connect directly:
+The final score is normalized between 0.0 and 1.0.
 
-```python
-from delivery_optimisation import DeliveryOptimisationEnv
+------------------------------------------------------------------------
 
-# Connect to existing server
-delivery_optimisationenv = DeliveryOptimisationEnv(base_url="<ENV_HTTP_URL_HERE>")
+Tasks
 
-# Use as normal
-result = delivery_optimisationenv.reset()
-result = delivery_optimisationenv.step(DeliveryOptimisationAction(message="Hello!"))
-```
+The environment contains three difficulty levels.
 
-Note: When connecting to an existing server, `delivery_optimisationenv.close()` will NOT stop the server.
+Easy: Small city graph, low traffic, fewer orders.
 
-### Using the Context Manager
+Medium: Larger graph, higher order arrival rate, increased traffic.
 
-The client supports context manager usage for automatic connection management:
+Hard: Large city, heavy traffic, driver failures, high order volume.
 
-```python
-from delivery_optimisation import DeliveryOptimisationAction, DeliveryOptimisationEnv
+------------------------------------------------------------------------
 
-# Connect with context manager (auto-connects and closes)
-with DeliveryOptimisationEnv(base_url="http://localhost:8000") as env:
-    result = env.reset()
-    print(f"Reset: {result.observation.echoed_message}")
-    # Multiple steps with low latency
-    for msg in ["Hello", "World", "!"]:
-        result = env.step(DeliveryOptimisationAction(message=msg))
-        print(f"Echoed: {result.observation.echoed_message}")
-```
+Running the Environment
 
-The client uses WebSocket connections for:
-- **Lower latency**: No HTTP connection overhead per request
-- **Persistent session**: Server maintains your environment state
-- **Efficient for episodes**: Better for many sequential steps
+Start the server:
 
-### Concurrent WebSocket Sessions
+uvicorn server.app:app –host 0.0.0.0 –port 8000
 
-The server supports multiple concurrent WebSocket connections. To enable this,
-modify `server/app.py` to use factory mode:
+Health check: http://localhost:8000/health
 
-```python
-# In server/app.py - use factory mode for concurrent sessions
-app = create_app(
-    DeliveryOptimisationEnvironment,  # Pass class, not instance
-    DeliveryOptimisationAction,
-    DeliveryOptimisationObservation,
-    max_concurrent_envs=4,  # Allow 4 concurrent sessions
-)
-```
+------------------------------------------------------------------------
 
-Then multiple clients can connect simultaneously:
+Running Inference
 
-```python
-from delivery_optimisation import DeliveryOptimisationAction, DeliveryOptimisationEnv
-from concurrent.futures import ThreadPoolExecutor
+python inference.py
 
-def run_episode(client_id: int):
-    with DeliveryOptimisationEnv(base_url="http://localhost:8000") as env:
-        result = env.reset()
-        for i in range(10):
-            result = env.step(DeliveryOptimisationAction(message=f"Client {client_id}, step {i}"))
-        return client_id, result.observation.message_length
+The agent will reset the environment, query an LLM for decisions,
+execute actions, and log rewards and scores.
 
-# Run 4 episodes concurrently
-with ThreadPoolExecutor(max_workers=4) as executor:
-    results = list(executor.map(run_episode, range(4)))
-```
+------------------------------------------------------------------------
 
-## Development & Testing
+Project Structure
 
-### Direct Environment Testing
-
-Test the environment logic directly without starting the HTTP server:
-
-```bash
-# From the server directory
-python3 server/delivery_optimisation_environment.py
-```
-
-This verifies that:
-- Environment resets correctly
-- Step executes actions properly
-- State tracking works
-- Rewards are calculated correctly
-
-### Running Locally
-
-Run the server locally for development:
-
-```bash
-uvicorn server.app:app --reload
-```
-
-## Project Structure
-
-```
 delivery_optimisation/
-├── .dockerignore         # Docker build exclusions
-├── __init__.py            # Module exports
-├── README.md              # This file
-├── openenv.yaml           # OpenEnv manifest
-├── pyproject.toml         # Project metadata and dependencies
-├── uv.lock                # Locked dependencies (generated)
-├── client.py              # DeliveryOptimisationEnv client
-├── models.py              # Action and Observation models
-└── server/
-    ├── __init__.py        # Server module exports
-    ├── delivery_optimisation_environment.py  # Core environment logic
-    ├── app.py             # FastAPI application (HTTP + WebSocket endpoints)
-    └── Dockerfile         # Container image definition
-```
+
+env/ - delivery_optimisation_environment.py - models.py - tasks.py -
+graders.py - client.py
+
+inference.py openenv.yaml Dockerfile README.txt
+
+------------------------------------------------------------------------
+
+Key Features
+
+-   Graph-based city simulation using NetworkX
+-   Multi-driver fleet management
+-   Dynamic demand generation
+-   Order batching
+-   Priority deliveries
+-   Driver travel-time simulation
+-   Traffic and weather effects
+-   Reward shaping for logistics optimization
+
+------------------------------------------------------------------------
+
+Applications
+
+-   Reinforcement learning research
+-   Multi-agent coordination
+-   Fleet optimization
+-   Agentic AI benchmarking
+-   Logistics decision-making systems
