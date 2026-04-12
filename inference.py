@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from delivery_optimisation import DeliveryOptimisationEnv, DeliveryOptimisationAction
-from .tasks import TASKS
+from delivery_optimisation.tasks import TASKS
 
 load_dotenv()
 
