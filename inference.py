@@ -33,7 +33,13 @@ MAX_STEPS = 30
 TEMPERATURE = 0.0
 MAX_TOKENS = 300
 
+API_KEY = os.getenv("SAMBANOVA_API_KEY")
+MODEL_NAME = os.getenv("MODEL_NAME") or "Meta-Llama-3.3-70B-Instruct"
 
+client = SambaNova(
+    api_key=API_KEY,
+    base_url="https://api.sambanova.ai/v1",
+)
 SYSTEM_PROMPT = textwrap.dedent(
     """
 You are a logistics dispatcher for a food delivery platform.
@@ -124,23 +130,23 @@ Do NOT include markdown or code blocks.
     ).strip()
 
 
-def get_model_action(client: OpenAI, obs, step: int) -> DeliveryOptimisationAction:
+def get_model_action(client, obs, step: int) -> DeliveryOptimisationAction:
 
     prompt = build_user_prompt(obs, step)
 
     try:
-        completion = client.chat.completions.create(
+        response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
             temperature=TEMPERATURE,
+            top_p=0.1,
             max_tokens=MAX_TOKENS,
         )
-        
-        text = (completion.choices[0].message.content or "").strip()
 
+        text = (response.choices[0].message.content or "").strip()
         data = json.loads(text)
         
         return DeliveryOptimisationAction(**data)
@@ -152,7 +158,7 @@ def get_model_action(client: OpenAI, obs, step: int) -> DeliveryOptimisationActi
 
 # ───────────────────────── Episode loop ─────────────────────────
 
-async def run_task(llm: OpenAI, task_name: str):
+async def run_task(llm, task_name: str):
 
     env = DeliveryOptimisationEnv(base_url=ENV_URL)
 
@@ -218,7 +224,10 @@ async def run_task(llm: OpenAI, task_name: str):
 
 async def main():
 
-    llm = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    llm = SambaNova(
+    api_key=os.getenv("SAMBANOVA_API_KEY"),
+    base_url="https://api.sambanova.ai/v1",
+    )    
 
     for task in TASKS:
         await run_task(llm, task.name)
